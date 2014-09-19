@@ -1,65 +1,13 @@
 require 'open3'
 require 'date'
 
-module KerberosUtils
-  class KerberosError < Exception
+class KerberosError < RuntimeError
+  def self.from_kadmin(message, exitstatus = 0)
+    self.new("kadmin failed (status #{exitstatus}): #{message}")
   end
+end
 
-  def self.kadmin_command
-    ["kadmin.local"]
-  end
-   
-  def self.execute(*cmd)
-    Open3.capture3(*cmd)
-  end
-
-  def self.add_principal(name)
-    if name == nil || name.empty?
-      raise ArgumentError,
-        "add_principal: Invalid name"
-    end
-
-    command = kadmin_command
-    command += ['-q', "addprinc -randkey #{name}"]
-    
-    out_s, err_s, status = self.execute(*command)
-    if status.exitstatus != 0
-      raise KerberosError,
-        "add_principal: kadmin failed with status #{status.exitstatus}"
-    end
-
-    out_s.split("\n").each do |line|
-      if line.include?("created")
-        match = /"([^"]+@[^"]+)"/.match(line)
-        if match and match[1]
-          return match[1]
-        end
-      end
-    end
-
-    raise KerberosError,
-      "add_principal: failed to match kadmin output"
-  end
-
-  def self.list_principals(pattern)
-    if pattern == nil || pattern.empty?
-      raise ArgumentError,
-        "list_principals: Invalid pattern"
-    end
-
-    command = kadmin_command
-    command += ['-q', "listprincs #{pattern}"]
-    
-    out_s, err_s, status = self.execute(*command)
-    if status.exitstatus != 0
-      raise KerberosError,
-        "list_principals: kadmin failed with status #{status.exitstatus}"
-    end
-
-    principals = out_s.split("\n").grep(/^[^@ ]+@[^@ ]+$/)
-    principals
-  end
-
+class KerberosUtils
   Principal = Struct.new("Principal",
     :name,
     :expiration_date,
@@ -76,31 +24,148 @@ module KerberosUtils
     :auth_fail_count
   )
 
-  def self.get_principal(name)
-    if name == nil || name.empty?
-      raise ArgumentError,
-        "get_principal: Invalid name"
+  def initialize(opts = {})
+    @principal = opts[:principal]
+    @password = opts[:password]
+    @use_keytab = opts[:use_keytab]
+    @keytab_file = opts[:keytab_file]
+    @realm = opts[:realm]
+    @cred_cache = opts[:cred_cache]
+    @local = opts[:local]
+    @server = opts[:server]
+    @extra_options = opts[:extra_options]
+  end
+
+  attr_accessor :principal, :password, :use_keytab, :keytab_file, :realm,
+                :cred_cache, :local, :server, :extra_options
+
+  def kadmin_find_error_message(err_s)
+    err_s.split(/\n+/).find { |line|
+      line =~ /^(\w+):/ && Regexp.last_match[1].casecmp("warning") != 0
+    }
+  end
+
+  protected :kadmin_find_error_message
+
+  def kadmin_execute(kadmin_command, opts = {})
+    cmd = if @local
+      ["kadmin.local"]
+    else
+      ["kadmin"]
     end
 
-    command = kadmin_command
-    command += ['-q', "getprinc -terse #{name}"]
-    
-    out_s, err_s, status = self.execute(*command)
-    if status.exitstatus != 0
-      raise KerberosError,
-        "get_principal: kadmin failed with status #{status.exitstatus}"
+    cmd += ['-r', @realm] if @realm
+    cmd += ['-p', @principal] if @principal
+    if @use_keytab
+      cmd << '-k'
+      cmd += ['-t', @keytab_file] if @keytab_file
     end
+    cmd += ['-c', @cred_cache] if @cred_cache
+    cmd += ['-s', @server] if @server
+    cmd += @extra_options if @extra_options
+    cmd += ['-q', kadmin_command]
+
+    if @password
+      opts[:stdin_data] = "#{@password}\n" + (opts[:stdin_data] || "")
+    end
+
+    out_s, err_s, status = Open3.capture3(*cmd, opts)
+
+    if status.exitstatus != 0
+      message = kadmin_find_error_message(err_s)
+      raise KerberosError.from_kadmin(message, status.exitstatus)
+    end
+
+    [out_s, err_s, status]
+  end
+
+  protected :kadmin_find_error_message
+
+  def add_principal(principal, opts = {})
+    if principal == nil || principal.empty?
+      raise ArgumentError,
+        "add_principal: Invalid principal"
+    end
+
+    pw = opts.delete(:pw)
+
+    cmd = ["addprinc"]
+    opts.each do |key, value|
+      if [TrueClass, FalseClass].include?(value.class)
+        cmd << (value ? "+#{key}" : "-#{key}")
+      else
+        cmd << "-#{key}"
+        if value != nil
+          value = value.to_s
+          cmd << (value.include?(" ") ? "\"#{value}\"" : value)
+        end  
+      end
+    end
+
+    cmd << principal
+
+    exec_opts = if pw
+      {:stdin_data => "#{pw}\n" * 2}
+    else
+      {}
+    end
+
+    out_s, err_s, status = kadmin_execute(cmd.join(' '), exec_opts)
+    out_s.split("\n").each do |line|
+      if line.include?("created")
+        match = /"([^"]+@[^"]+)"/.match(line)
+        if match
+          return match[1]
+        end
+      end
+    end
+
+    message = kadmin_find_error_message(err_s)
+    raise KerberosError.from_kadmin(message)
+  end
+
+  def list_principals(pattern)
+    if pattern == nil || pattern.empty?
+      raise ArgumentError,
+        "list_principals: Invalid pattern"
+    end
+
+    out_s, err_s, status = kadmin_execute("listprincs \"#{pattern}\"")
+
+    principals = out_s.split("\n").grep(/^[^@ ]+@[^@ ]+$/)
+    if principals.empty?
+      message = kadmin_find_error_message(err_s)
+      if message
+        raise KerberosError.from_kadmin(message)
+      end
+    end
+
+    principals
+  end
+
+  def get_principal(principal)
+    if principal == nil || principal.empty?
+      raise ArgumentError,
+        "get_principal: Invalid principal name"
+    end
+
+    out_s, err_s, status = kadmin_execute("getprinc -terse \"#{principal}\"")
 
     fields = nil
     out_s.split("\n").each do |line|
-      if line.start_with?("\"#{name}")
+      if line.include?("\t")
         fields = line.split("\t")
         break
       end
     end
 
     if fields == nil
-      return nil
+      message = kadmin_find_error_message(err_s)
+      if message
+        raise KerberosError.from_kadmin(message, status.exitstatus)
+      else
+        return nil
+      end
     end
 
     n = -1
@@ -115,11 +180,7 @@ module KerberosUtils
     
     f_time = lambda {
       ts = fields[n += 1].to_i
-      if ts == 0
-        nil
-      else
-        Time.at(ts).to_datetime
-      end
+      ts == 0 ? nil : Time.at(ts).to_datetime
     }
 
     p = Principal.new()
@@ -144,5 +205,31 @@ module KerberosUtils
     end
 
     p
+  end
+
+  def keytab_add(principal, keytab_file = nil, is_principal_glob = false, 
+                 no_rand_keys = false)
+    if principal == nil || principal.empty?
+      raise ArgumentError,
+        "keytab_add: Invalid principal"
+    end
+
+    cmd = ["ktadd"]
+    cmd += ["-k", "\"#{keytab_file}\""] if keytab_file
+    cmd << '-norandkey' if no_rand_keys
+    cmd << '-glob' if is_principal_glob
+    cmd << "\"#{principal}\""   
+
+    out_s, err_s, status = self.kadmin_execute(cmd.join(' '))
+    num_entries_added = out_s.split("\n").count { |line|
+      line.include?("added to keytab")
+    }
+
+    if num_entries_added == 0
+      message = kadmin_find_error_message(err_s)
+      raise KerberosError.from_kadmin(message)
+    end
+
+    num_entries_added
   end
 end
