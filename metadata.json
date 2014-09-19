@@ -1,0 +1,21 @@
+{
+  "name": "danielkza-kerberos_site",
+  "version": "0.1",
+  "author": "Daniel Miranda",
+  "license": "GPLv2+",
+  "summary": "Kerberos module for automatic principal creation and keytab distribution",
+  "source": "https://github.com/danielkza/puppet-kerberos_site",
+  "operatingsystem_support": [
+    {
+      "operatingsystem": "Ubuntu",
+      "operatingsystemrelease": ["14.04"]
+    },
+    {
+      "operatingsystem": "Debian",
+      "operatingsystemrelease": ["wheezy", "squeeze"]
+    },
+  ],
+  "dependencies": [
+    { "name": "puppetlabs/stdlib" }
+  ]
+}
