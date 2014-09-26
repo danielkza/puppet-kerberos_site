@@ -79,7 +79,7 @@ class KerberosUtils
     [out_s, err_s, status]
   end
 
-  protected :kadmin_find_error_message
+  protected :kadmin_execute
 
   def add_principal(principal, opts = {})
     if principal == nil || principal.empty?
@@ -135,9 +135,7 @@ class KerberosUtils
     principals = out_s.split("\n").grep(/^[^@ ]+@[^@ ]+$/)
     if principals.empty?
       message = kadmin_find_error_message(err_s)
-      if message
-        raise KerberosError.from_kadmin(message)
-      end
+      raise KerberosError.from_kadmin(message) if message
     end
 
     principals
