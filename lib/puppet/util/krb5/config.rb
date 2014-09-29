@@ -6,7 +6,7 @@ module Puppet
     :krb5_default_realm => {
       :type    => :string,
       :desc    => %q{
-Default realm to use for Kerberos operations
+Default realm to append to principal names
 %}  },
     :krb5_keytab_dir => {
       :default => '$vardir/keytabs',
@@ -73,26 +73,28 @@ Credentials cache file to use. Omit or clear to use system default.
     :krb5_kadmin_extra_options => {
       :desc    => %q{
 Extra options to pass directly to kadmin
+%}  },
+    :krb5_ktutil_bin => {
+      :desc    => %q{
+Name or path to the ktutil executable. Omit or clear to look up in PATH.
 %}  }
   )
 end
 
 module Puppet::Util::Krb5
-  @@setting_names = [:realm, :principal, :password, :use_keytab, :keytab_file,
-                     :local, :server, :cred_cache, :extra_options]
+  @@setting_names = [:bin, :local_bin, :realm, :principal, :password,
+                     :use_keytab, :keytab_file, :local, :server, :cred_cache,
+                     :extra_options]
   @@kadmin_instance = nil
 
   def self.kadmin_from_settings
     opts = Hash[@@setting_names.map { |n|
       key = "krb5_kadmin_#{n}".to_sym
-      puts "key", key
       value = Puppet.settings[key]
       value = nil if value.is_a?(String) && value.empty?
 
       [n, value] 
     }]
-
-    puts "kadmin_opts", opts
 
     Kadmin.new(opts)
   end
