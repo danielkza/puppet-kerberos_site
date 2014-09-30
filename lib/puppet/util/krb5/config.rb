@@ -18,6 +18,17 @@ Default realm to append to principal names
       :desc    => %q{
 Directory where generated keytabs for hosts are stored
 %}  },
+    :krb5_keytab_mount_point => {
+      :default => 'keytabs',
+      :desc    => %q{
+Puppet file server mountpoint where keytabs should be retrieved from. Should be
+set up to serve files from subdirectories of 'krb5_keytab_dir' matching FQDNs
+for hosts. Like the following example:
+
+  [keytabs]
+    path $krb5_keytab_dir/%H
+    allow *
+%}  },
     :krb5_kadmin_bin => {
       :desc    => %q{
 Name or path to the kadmin executable. Omit or clear to look up in PATH.
