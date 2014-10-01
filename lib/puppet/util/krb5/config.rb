@@ -93,24 +93,29 @@ Name or path to the ktutil executable. Omit or clear to look up in PATH.
 end
 
 module Puppet::Util::Krb5
-  @@setting_names = [:bin, :local_bin, :realm, :principal, :password,
+  @@kadmin_setting_names = [:bin, :local_bin, :realm, :principal, :password,
                      :use_keytab, :keytab_file, :local, :server, :cred_cache,
                      :extra_options]
   @@kadmin_instance = nil
 
   def self.kadmin_from_settings
-    opts = Hash[@@setting_names.map { |n|
+    opts = @@kadmin_setting_names.reduce({}) { |h, n|
       key = "krb5_kadmin_#{n}".to_sym
       value = Puppet.settings[key]
       value = nil if value.is_a?(String) && value.empty?
-
-      [n, value] 
-    }]
+      
+      h[n] = value
+      h
+    }
 
     Kadmin.new(opts)
   end
 
   def self.kadmin_instance
     @@kadmin_instance ||= kadmin_from_settings
+  end
+
+  def self.ktutil_from_settings(path)
+    Ktutil.new(path, Puppet.settings[:krb5_ktutil_bin])
   end
 end
