@@ -1,5 +1,5 @@
-require 'puppet'
 require 'puppet/util/krb5/kadmin'
+require 'puppet/util/krb5/ktutil'
 
 module Puppet
   define_settings(:main,
@@ -94,19 +94,17 @@ end
 
 module Puppet::Util::Krb5
   @@kadmin_setting_names = [:bin, :local_bin, :realm, :principal, :password,
-                     :use_keytab, :keytab_file, :local, :server, :cred_cache,
-                     :extra_options]
+    :use_keytab, :keytab_file, :local, :server, :cred_cache, :extra_options]
   @@kadmin_instance = nil
 
   def self.kadmin_from_settings
-    opts = @@kadmin_setting_names.reduce({}) { |h, n|
-      key = "krb5_kadmin_#{n}".to_sym
+    opts = @@kadmin_setting_names.each_with_object(Hash.new) do |h, setting|
+      key = "krb5_kadmin_#{setting}".to_sym
       value = Puppet.settings[key]
       value = nil if value.is_a?(String) && value.empty?
       
       h[n] = value
-      h
-    }
+    end
 
     Kadmin.new(opts)
   end
