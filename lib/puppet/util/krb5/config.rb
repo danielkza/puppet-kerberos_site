@@ -1,30 +1,14 @@
 module Puppet
   define_settings(:main,
-    :krb5_default_realm => {
-      :type    => :string,
-      :desc    => %q{
-Default realm to append to principal names
-%}  },
     :krb5_keytab_dir => {
       :default => '$vardir/keytabs',
       :type    => :directory,
       :create  => true,
       :owner   => 'service',
       :group   => 'service',
-      :mode    => '01600',
+      :mode    => '0600',
       :desc    => %q{
-Directory where generated keytabs for hosts are stored
-%}  },
-    :krb5_keytab_mount_point => {
-      :default => 'keytabs',
-      :desc    => %q{
-Puppet file server mountpoint where keytabs should be retrieved from. Should be
-set up to serve files from subdirectories of 'krb5_keytab_dir' matching FQDNs
-for hosts. Like the following example:
-
-  [keytabs]
-    path $krb5_keytab_dir/%H
-    allow *
+Directory where generated keytabs should be stored
 %}  },
     :krb5_kadmin_bin => {
       :desc    => %q{
