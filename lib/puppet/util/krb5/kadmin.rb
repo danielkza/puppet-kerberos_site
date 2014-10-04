@@ -4,23 +4,21 @@ require 'date'
 
 module Puppet::Util::Krb5
 class Kadmin
+  KEYTAB_KVNO_ALL = 'all'
+  KEYTAB_KVNO_OLD = 'old'
+
+  @@attrs = [:bin, :local_bin, :realm, :principal, :local, :server, :password,
+             :use_keytab, :keytab_file, :cred_cache, :extra_options]
+
   def initialize(opts = {})
-    @bin = opts[:bin] || 'kadmin'
-    @local_bin = opts[:local_bin] || 'kadmin.local'
-    @realm = opts[:realm]
-    @principal = opts[:principal]
+    @@attrs.each do |attr_|
+      instance_variable_set(attr_, opts[attr_])
+    end
 
-    @local = opts[:local]
-    @server = opts[:server]
+    @bin ||= 'kadmin'
+    @local_bin ||= 'kadmin.local'
 
-    @password = opts[:password]
-    @use_keytab = opts[:use_keytab]
-    @keytab_file = opts[:keytab_file]
-    @cred_cache = opts[:cred_cache]
-
-    @extra_options = opts[:extra_options]
-
-    auth_options_count = [@password, @use_keytab, @cred_cache].compact.length
+    auth_options_count = [@password, @use_keytab, @cred_cache].count { |e| e }
     if @local && (@server || auth_options_count > 0)
       raise ArgumentError,
         'Server, password, keytab or cred_cache cannot be specified with local'
@@ -30,24 +28,22 @@ class Kadmin
     end
   end
 
-  attr_reader :bin, :local_bin, :realm, :principal, :local, :server,
-              :password, :use_keytab, :keytab_file, :cred_cache,
-              :extra_options
+  attr_reader *@@attrs
 
   def add_principal(principal, opts = {})
-    principal_check_name(principal)
+    Puppet::Util::Krb5.principal_check_name(principal)
     
     principal_add_or_modify(principal, false, opts)
   end
 
   def modify_principal(principal, opts = {})
-    principal_check_name(principal)
+    Puppet::Util::Krb5.principal_check_name(principal)
     
     principal_add_or_modify(principal, true, opts)
   end
 
   def list_principals(pattern = '*')
-    Krb5.principal_check_pattern(pattern)
+    Puppet::Util::Krb5.principal_check_pattern(pattern)
 
     out, err, status = execute_query(['listprincs',  pattern])
 
@@ -61,7 +57,7 @@ class Kadmin
   end
 
   def get_principal(principal)
-    principal_check_name(principal)
+    Puppet::Util::Krb5.principal_check_name(principal)
 
     out, err, status = execute_query(['getprinc', '-terse', principal])
 
@@ -80,7 +76,7 @@ class Kadmin
     f_nonzero = lambda { f_int.call.nonzero? }
     f_time = lambda {
       ts = f_int.call.nonzero?
-      ts && Time.at(ts).to_datetime
+      ts && Time.at(ts)
     }
 
     # Mappings of the fields to their corresponding types, with example output
@@ -110,36 +106,47 @@ class Kadmin
   end
 
   def keytab_add(principal_or_pattern, is_glob = false, keytab_file = nil,
-                 no_rand_keys = false)
+                 no_rand_keys = true)
     if !is_glob
-      Krb5.principal_check_name(principal_or_pattern)
+      Puppet::Util::Krb5.principal_check_name(principal_or_pattern)
     else
-      Krb5.principal_check_pattern(principal_or_pattern)
+      Puppet::Util::Krb5.principal_check_pattern(principal_or_pattern)
     end
 
     query = ['ktadd',
       *(["-k", "\"#{keytab_file}\""] if keytab_file),
-      *('-norandkey' if no_rand_keys),
+      *('-norandkey' if @local && no_rand_keys),
       *('-glob' if is_glob),
       principal_or_pattern
     ]   
 
     out, err, status = self.execute_query(query)
+    added_keys = Hash.new
+    error_msg = nil
 
-    num_entries_added = out.split("\n").count { |line|
-      line.downcase.include?("added to keytab")
-    }
+    out.each_line do |line|
+      next unless principal_match = /([^\s]+@[^\s]+)/.match(line)
+      next unless /added to keytab/i.match(line)
+      next unless kvno_match = /kvno\s*(\d+)/i.match(line)
 
-    if num_entries_added == 0
-      message = find_error_message(err)
-      raise KerberosError.from_command('kadmin', message)
+      principal = principal_match[1]
+      kvno = kvno_match[1].to_i
+      if kvno <= 0
+        error_msg = "Found invalid key version number for principal #{principal}"
+        break
+      end
+  
+      added_keys[principal] ||= kvno
     end
 
-    num_entries_added
+    error_msg = 'No key information found in output' if added_keys.empty?
+    raise KerberosError.from_command('kadmin', error_msg) if error_msg
+
+    added_keys
   end
   
   def keytab_remove(principal, key_version, keytab_file = nil)
-    principal_check_name(principal)
+    Puppet::Util::Krb5.principal_check_name(principal)
 
     if key_version.is_a?(Integer)
       if key_version <= 0
@@ -153,7 +160,8 @@ class Kadmin
       'ktremove',
       *(["-k", "\"#{keytab_file}\""] if keytab_file),
        principal,
-       key_version.to_s]
+       key_version.to_s
+    ]
     
     out, err, status = self.execute_query(query)
 
@@ -209,7 +217,6 @@ class Kadmin
     env['LANG'] ||= 'C'
     env['LC_ALL'] ||= 'C'
 
-    puts "Executing kadmin: #{cmd.to_s}"
     out, err, status = Open3.capture3(env, *cmd, opts)
 
     if status.exitstatus != 0
@@ -247,7 +254,7 @@ class Kadmin
       if is_boolean(v)
         v ? ["-#{k}"] : []
       else
-        if v.is_a?(DateTime)
+        if v.is_a?(Datetime) || v.is_a?(Time)
           v = format_datetime(v)
         elsif v.is_a?(Integer)
           v = v.to_s
@@ -272,7 +279,7 @@ class Kadmin
   end
 
   def principal_add_or_modify(principal, modify = false, opts = {})
-    principal_check_name(principal)
+    Puppet::Util::Krb5.principal_check_name(principal)
     opts = opts.clone
 
     password = opts.delete(:pw)
