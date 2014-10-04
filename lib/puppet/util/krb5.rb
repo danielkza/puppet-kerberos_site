@@ -1,3 +1,7 @@
+require 'puppet/util/krb5/kadmin'
+require 'puppet/util/krb5/ktutil'
+require 'puppet/util/krb5/config'
+
 module Puppet::Util::Krb5
   class KerberosError < RuntimeError
     def self.from_command(command, message, exitstatus = 0)
@@ -23,23 +27,45 @@ module Puppet::Util::Krb5
     :auth_fail_count
   )
 
+  module_function
+
   def principal_check_name(principal)
     if principal == nil || principal.empty?
-      raise ArgumentError, 'Invalid principal name'
+      raise ArgumentError, "Invalid principal name - '#{name}'"
     end
   end
-
-  module_function :principal_check_name
 
   def principal_check_pattern(pattern)
     if pattern == nil || pattern.empty?
-      raise ArgumentError, 'Invalid principal pattern'
+      raise ArgumentError, "Invalid principal pattern - '#{pattern}'"
     end
   end
 
-  module_function :principal_check_pattern
-end
+  @kadmin_instance = nil
 
-require 'puppet/util/krb5/kadmin'
-require 'puppet/util/krb5/ktutil'
-require 'puppet/util/krb5/config'
+  def kadmin_new
+    setting_names = [:bin, :local_bin, :realm, :principal, :password,
+                     :use_keytab, :keytab_file, :local, :server, :cred_cache,
+                     :extra_options]
+
+    opts = setting_names.each.with_object(Hash.new) do |setting, h|
+      key = "krb5_kadmin_#{setting}".to_sym
+      value = Puppet.settings[key]
+      value = nil if value.is_a?(String) && value.empty?
+      
+      h[setting] = value
+    end
+
+    Puppet.info("kopts: #{opts.to_s}")
+
+    Kadmin.new(opts)
+  end
+  
+  def kadmin_instance
+    @kadmin_instance ||= kadmin_new
+  end
+  
+  def ktutil_new(path)
+    Ktutil.new(path, Puppet.settings[:krb5_ktutil_bin])
+  end
+end

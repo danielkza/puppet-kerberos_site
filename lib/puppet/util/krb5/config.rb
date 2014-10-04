@@ -1,6 +1,3 @@
-require 'puppet/util/krb5/kadmin'
-require 'puppet/util/krb5/ktutil'
-
 module Puppet
   define_settings(:main,
     :krb5_default_realm => {
@@ -90,30 +87,4 @@ Extra options to pass directly to kadmin
 Name or path to the ktutil executable. Omit or clear to look up in PATH.
 %}  }
   )
-end
-
-module Puppet::Util::Krb5
-  @@kadmin_setting_names = [:bin, :local_bin, :realm, :principal, :password,
-    :use_keytab, :keytab_file, :local, :server, :cred_cache, :extra_options]
-  @@kadmin_instance = nil
-
-  def self.kadmin_from_settings
-    opts = @@kadmin_setting_names.each_with_object(Hash.new) do |h, setting|
-      key = "krb5_kadmin_#{setting}".to_sym
-      value = Puppet.settings[key]
-      value = nil if value.is_a?(String) && value.empty?
-      
-      h[n] = value
-    end
-
-    Kadmin.new(opts)
-  end
-
-  def self.kadmin_instance
-    @@kadmin_instance ||= kadmin_from_settings
-  end
-
-  def self.ktutil_from_settings(path)
-    Ktutil.new(path, Puppet.settings[:krb5_ktutil_bin])
-  end
 end
