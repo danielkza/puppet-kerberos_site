@@ -2,7 +2,7 @@
   "name": "danielkza-kerberos_site",
   "version": "0.1.0",
   "author": "Daniel Miranda",
-  "license": "GPLv2+",
+  "license": "GPLv2",
   "summary": "Kerberos module for automatic principal creation and keytab distribution",
   "source": "https://github.com/danielkza/puppet-kerberos_site",
   "dependencies": [

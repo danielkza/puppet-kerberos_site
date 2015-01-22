@@ -1,4 +1,6 @@
 require 'digest'
+
+require 'puppet'
 require 'puppet/util/krb5'
 
 Puppet::Parser::Functions.newfunction(:krb5_generate_keytab,

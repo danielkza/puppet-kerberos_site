@@ -12,7 +12,7 @@ class Kadmin
 
   def initialize(opts = {})
     @@attrs.each do |attr_|
-      instance_variable_set(attr_, opts[attr_])
+      instance_variable_set("@#{attr_}".to_sym, opts[attr_])
     end
 
     @bin ||= 'kadmin'
@@ -120,7 +120,7 @@ class Kadmin
       principal_or_pattern
     ]   
 
-    out, err, status = self.execute_query(query)
+    out, err, status = execute_query(query)
     added_keys = Hash.new
     error_msg = nil
 
@@ -163,7 +163,7 @@ class Kadmin
        key_version.to_s
     ]
     
-    out, err, status = self.execute_query(query)
+    out, err, status = execute_query(query)
 
     num_entries_removed = out.split("\n").count { |line|
       line.downcase.include?("removed from keytab")
@@ -187,6 +187,8 @@ class Kadmin
   end
 
   def execute_query(query, env = {}, opts = {})
+    # Quote parameters with spaces. Literal quotes can be represented by
+    # doubling them
     query_str = query.map { |elm|
       !elm.include?(" ") ? elm : ('"' + elm.gsub('"', '""') + '"')
     }.join(' ')
